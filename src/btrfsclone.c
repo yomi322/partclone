@@ -307,12 +307,17 @@ void read_bitmap(char* device, file_system_info fs_info, unsigned long* bitmap, 
     struct extent_buffer *leaf;
     struct btrfs_root_item ri;
     int slot;
+    int i;
 
     fs_open(device);
     dev_size = fs_info.device_size;
     block_size  = btrfs_super_nodesize(info->super_copy);
 
-    set_bitmap(bitmap, BTRFS_SUPER_INFO_OFFSET, block_size);
+    for (i = 0; i < BTRFS_SUPER_MIRROR_MAX; i++) {
+	if (btrfs_sb_offset(i) + block_size > dev_size)
+	    break;
+	set_bitmap(bitmap, btrfs_sb_offset(i), block_size);
+    }
     //check_extent_bitmap(bitmap, btrfs_root_bytenr(&info->extent_root->root_item), &block_size);
     //check_extent_bitmap(bitmap, btrfs_root_bytenr(&info->csum_root->root_item), &block_size);
     //check_extent_bitmap(bitmap, btrfs_root_bytenr(&info->quota_root->root_item), &block_size);
