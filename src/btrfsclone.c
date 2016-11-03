@@ -91,6 +91,7 @@ int check_extent_bitmap(unsigned long* bitmap, u64 bytenr, u64 *num_bytes)
 	*num_bytes = maxlen;
 
     set_bitmap(bitmap, multi->stripes[0].physical, *num_bytes);
+    kfree(multi);
     return 0;
 }
 
