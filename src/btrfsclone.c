@@ -74,24 +74,28 @@ int check_extent_bitmap(unsigned long* bitmap, u64 bytenr, u64 *num_bytes)
     int mirror = 0;
     //struct btrfs_fs_info *info = root->fs_info;
     u64 maxlen = *num_bytes;
+    int num_mirrors;
 
 
     if (*num_bytes % root->sectorsize)
 	return -EINVAL;
 
 
-    ret = btrfs_map_block(&info->mapping_tree, READ, bytenr, num_bytes,
-	    &multi, mirror, NULL);
-    if (ret) {
-	log_mesg(1, 0, 0, fs_opt.debug, "%s: Couldn't map the block %llu\n", __FILE__, bytenr);
+    num_mirrors = btrfs_num_copies(&info->mapping_tree, bytenr, *num_bytes);
+    for (mirror = 1; mirror <= num_mirrors; mirror++) {
+	ret = btrfs_map_block(&info->mapping_tree, READ, bytenr, num_bytes,
+		&multi, mirror, NULL);
+	if (ret) {
+	    log_mesg(1, 0, 0, fs_opt.debug, "%s: Couldn't map the block %llu\n", __FILE__, bytenr);
+	}
+
+	log_mesg(3, 0, 0, fs_opt.debug, "%s: read data from %llu and size %llu\n", __FILE__, multi->stripes[0].physical, *num_bytes);
+	if (*num_bytes > maxlen)
+	    *num_bytes = maxlen;
+
+	set_bitmap(bitmap, multi->stripes[0].physical, *num_bytes);
+	kfree(multi);
     }
-
-    log_mesg(3, 0, 0, fs_opt.debug, "%s: read data from %llu and size %llu\n", __FILE__, multi->stripes[0].physical, *num_bytes);
-    if (*num_bytes > maxlen)
-	*num_bytes = maxlen;
-
-    set_bitmap(bitmap, multi->stripes[0].physical, *num_bytes);
-    kfree(multi);
     return 0;
 }
 
