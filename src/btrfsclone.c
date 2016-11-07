@@ -73,9 +73,12 @@ int check_extent_bitmap(unsigned long* bitmap, u64 bytenr, u64 *num_bytes)
     int ret = 0;
     int mirror = 0;
     //struct btrfs_fs_info *info = root->fs_info;
-    u64 maxlen = *num_bytes;
+    //u64 maxlen = *num_bytes;
     int num_mirrors;
     u64 device_id;
+    u64 bytes = *num_bytes;
+    u64 read_len, bytes_left;
+    u64 byte_offset;
 
 
     if (*num_bytes % root->sectorsize)
@@ -85,22 +88,32 @@ int check_extent_bitmap(unsigned long* bitmap, u64 bytenr, u64 *num_bytes)
     device_id = btrfs_stack_device_id(&info->super_copy->dev_item);
     num_mirrors = btrfs_num_copies(&info->mapping_tree, bytenr, *num_bytes);
     for (mirror = 1; mirror <= num_mirrors; mirror++) {
-	ret = btrfs_map_block(&info->mapping_tree, READ, bytenr, num_bytes,
-		&multi, mirror, NULL);
-	if (ret) {
-	    log_mesg(1, 0, 0, fs_opt.debug, "%s: Couldn't map the block %llu\n", __FILE__, bytenr);
+	bytes_left = bytes;
+	byte_offset = bytenr;
+	while (bytes_left > 0) {
+	    read_len = bytes_left;
+	    ret = btrfs_map_block(&info->mapping_tree, READ, byte_offset, &read_len,
+		    &multi, mirror, NULL);
+	    if (ret) {
+		log_mesg(1, 0, 0, fs_opt.debug, "%s: Couldn't map the block %llu\n", __FILE__, byte_offset);
+	    }
+
+	    log_mesg(3, 0, 0, fs_opt.debug, "%s: read data from %llu and size %llu\n", __FILE__, multi->stripes[0].physical, read_len);
+	    if (read_len > bytes_left)
+		read_len = bytes_left;
+
+	    if (multi->stripes[0].dev->devid == device_id)
+		set_bitmap(bitmap, multi->stripes[0].physical, read_len);
+#if 0
+	    fprintf(stderr, "multi mirror %d / %d devid %llu logical %llu physical %llu\n",
+			    mirror, num_mirrors, multi->stripes[0].dev->devid,
+			    bytenr, multi->stripes[0].physical);
+#endif
+	    kfree(multi);
+
+	    bytes_left -= read_len;
+	    byte_offset += read_len;
 	}
-
-	log_mesg(3, 0, 0, fs_opt.debug, "%s: read data from %llu and size %llu\n", __FILE__, multi->stripes[0].physical, *num_bytes);
-	if (*num_bytes > maxlen)
-	    *num_bytes = maxlen;
-
-	if (multi->stripes[0].dev->devid == device_id)
-	    set_bitmap(bitmap, multi->stripes[0].physical, *num_bytes);
-	fprintf(stderr, "multi mirror %d / %d devid %llu logical %llu physical %llu\n",
-			mirror, num_mirrors, multi->stripes[0].dev->devid,
-			bytenr, multi->stripes[0].physical);
-	kfree(multi);
     }
     return 0;
 }
@@ -222,7 +235,7 @@ void dump_start_leaf(unsigned long* bitmap, struct btrfs_root *root, struct exte
 	size = btrfs_level_size(root, btrfs_root_level(&root->root_item));
 	log_mesg(3, 0, 0, fs_opt.debug, "%s: DUMP: leaf %llu\n", __FILE__, (unsigned long long)btrfs_header_bytenr(eb));
 	bytenr = (unsigned long long)btrfs_header_bytenr(eb);
-	fprintf(stderr, "=== leaf bytenr %llu size %llu\n", bytenr, size);
+	//fprintf(stderr, "=== leaf bytenr %llu size %llu\n", bytenr, size);
 	check_extent_bitmap(bitmap, bytenr, &size);
 	u32 nr = btrfs_header_nritems(eb);
 	for (i = 0 ; i < nr ; i++) {
@@ -258,8 +271,10 @@ void dump_start_leaf(unsigned long* bitmap, struct btrfs_root *root, struct exte
     u64 node_size = btrfs_level_size(root, btrfs_header_level(eb));
     u64 node_bytenr = btrfs_header_bytenr(eb);
     leaf_size = btrfs_level_size(root, btrfs_header_level(eb) - 1);
+#if 0
     fprintf(stderr, "=== node bytenr %llu nodesize %llu itemnr %u\n",
 		node_bytenr, node_size, nr);
+#endif
     check_extent_bitmap(bitmap, node_bytenr, &node_size);
     for (i = 0; i < nr; i++) {
 	struct extent_buffer *next = read_tree_block(root,
